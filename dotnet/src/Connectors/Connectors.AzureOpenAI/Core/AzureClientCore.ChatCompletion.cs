@@ -65,7 +65,9 @@ internal partial class AzureClientCore
             options.AudioOptions = GetAudioOptions(executionSettings);
         }
 
-        if (azureSettings.SetNewMaxCompletionTokensEnabled)
+        // Automatically enable the new max completion tokens parameter for GPT-5 models
+        // or when explicitly requested by the user
+        if (azureSettings.SetNewMaxCompletionTokensEnabled || IsGpt5Model(this.DeploymentName))
         {
 #pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             options.SetNewMaxCompletionTokensPropertyEnabled(true);
@@ -260,5 +262,30 @@ internal partial class AzureClientCore
         }
 
         throw new NotSupportedException($"The provided audio options '{executionSettings.Audio?.GetType()}' is not supported.");
+    }
+
+    /// <summary>
+    /// Determines if the given deployment name represents a GPT-5 model.
+    /// </summary>
+    /// <param name="deploymentName">The deployment name to check.</param>
+    /// <returns>True if the deployment name represents a GPT-5 model, false otherwise.</returns>
+    /// <remarks>
+    /// GPT-5 models require using the 'max_completion_tokens' parameter instead of 'max_tokens'.
+    /// This method detects GPT-5 models by checking for known GPT-5 model name patterns.
+    /// </remarks>
+    private static bool IsGpt5Model(string deploymentName)
+    {
+        if (string.IsNullOrWhiteSpace(deploymentName))
+        {
+            return false;
+        }
+
+        // Convert to uppercase for case-insensitive matching
+        string upperDeploymentName = deploymentName.ToUpperInvariant();
+
+        // Check for GPT-5 model patterns
+        // This includes official GPT-5 model names like "gpt-5-mini", "gpt-5-nano", "gpt-5", etc.
+        return upperDeploymentName.StartsWith("GPT-5", StringComparison.Ordinal) ||
+               upperDeploymentName.StartsWith("GPT5", StringComparison.Ordinal);
     }
 }

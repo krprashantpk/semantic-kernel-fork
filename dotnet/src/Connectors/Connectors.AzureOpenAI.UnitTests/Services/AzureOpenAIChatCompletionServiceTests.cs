@@ -350,6 +350,165 @@ public sealed class AzureOpenAIChatCompletionServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("gpt-5", true)]
+    [InlineData("gpt-5-mini", true)]
+    [InlineData("gpt-5-nano", true)]
+    [InlineData("GPT-5", true)]
+    [InlineData("GPT-5-MINI", true)]
+    [InlineData("GPT-5-NANO", true)]
+    [InlineData("gpt5", true)]
+    [InlineData("gpt5-mini", true)]
+    [InlineData("GPT5", true)]
+    [InlineData("GPT5-MINI", true)]
+    [InlineData("gpt-4", false)]
+    [InlineData("gpt-4o", false)]
+    [InlineData("gpt-3.5-turbo", false)]
+    [InlineData("davinci", false)]
+    [InlineData("my-deployment", false)]
+    public async Task GetChatMessageContentsAutomaticallyEnablesMaxCompletionTokensForGpt5ModelsAsync(string deploymentName, bool shouldUseMaxCompletionTokens)
+    {
+        // Arrange
+        var service = new AzureOpenAIChatCompletionService(deploymentName, "https://endpoint", "api-key", "model-id", this._httpClient);
+        var settings = new AzureOpenAIPromptExecutionSettings
+        {
+            MaxTokens = 123
+            // Note: SetNewMaxCompletionTokensEnabled is NOT explicitly set, testing automatic detection
+        };
+
+        using var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AzureOpenAITestHelper.GetTestResponse("chat_completion_test_response.json"))
+        };
+        this._messageHandlerStub.ResponsesToReturn.Add(responseMessage);
+
+        // Act
+        var result = await service.GetChatMessageContentsAsync(new ChatHistory("System message"), settings);
+
+        // Assert
+        var requestContent = this._messageHandlerStub.RequestContents[0];
+        Assert.NotNull(requestContent);
+
+        var content = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(requestContent));
+
+        if (shouldUseMaxCompletionTokens)
+        {
+            // For GPT-5 models, it should use max_completion_tokens
+            Assert.True(content.TryGetProperty("max_completion_tokens", out var propertyValue));
+            Assert.Equal(123, propertyValue.GetInt32());
+            // And should NOT have max_tokens
+            Assert.False(content.TryGetProperty("max_tokens", out _));
+        }
+        else
+        {
+            // For non-GPT-5 models, it should use max_tokens
+            Assert.True(content.TryGetProperty("max_tokens", out var propertyValue));
+            Assert.Equal(123, propertyValue.GetInt32());
+            // And should NOT have max_completion_tokens
+            Assert.False(content.TryGetProperty("max_completion_tokens", out _));
+        }
+    }
+
+    [Fact]
+    public async Task GetChatMessageContentsHandlesEmptyDeploymentNameCorrectlyAsync()
+    {
+        // Arrange - Test with empty deployment name falls back to max_tokens
+        var service = new AzureOpenAIChatCompletionService("empty-deployment", "https://endpoint", "api-key", "model-id", this._httpClient);
+        var settings = new AzureOpenAIPromptExecutionSettings
+        {
+            MaxTokens = 123
+        };
+
+        using var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AzureOpenAITestHelper.GetTestResponse("chat_completion_test_response.json"))
+        };
+        this._messageHandlerStub.ResponsesToReturn.Add(responseMessage);
+
+        // Act
+        var result = await service.GetChatMessageContentsAsync(new ChatHistory("System message"), settings);
+
+        // Assert
+        var requestContent = this._messageHandlerStub.RequestContents[0];
+        Assert.NotNull(requestContent);
+
+        var content = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(requestContent));
+
+        // For non-GPT-5 deployment names, should use max_tokens
+        Assert.True(content.TryGetProperty("max_tokens", out var propertyValue));
+        Assert.Equal(123, propertyValue.GetInt32());
+        Assert.False(content.TryGetProperty("max_completion_tokens", out _));
+    }
+
+    [Theory]
+    [InlineData("gpt-5-mini")]
+    [InlineData("GPT-5-NANO")]
+    [InlineData("gpt5")]
+    public async Task GetChatMessageContentsAutoDetectsGpt5EvenWhenSetNewMaxCompletionTokensEnabledIsFalseAsync(string deploymentName)
+    {
+        // Arrange
+        var service = new AzureOpenAIChatCompletionService(deploymentName, "https://endpoint", "api-key", "model-id", this._httpClient);
+        var settings = new AzureOpenAIPromptExecutionSettings
+        {
+            MaxTokens = 123,
+            SetNewMaxCompletionTokensEnabled = false // Even when false, GPT-5 models should auto-enable max_completion_tokens
+        };
+
+        using var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AzureOpenAITestHelper.GetTestResponse("chat_completion_test_response.json"))
+        };
+        this._messageHandlerStub.ResponsesToReturn.Add(responseMessage);
+
+        // Act
+        var result = await service.GetChatMessageContentsAsync(new ChatHistory("System message"), settings);
+
+        // Assert
+        var requestContent = this._messageHandlerStub.RequestContents[0];
+        Assert.NotNull(requestContent);
+
+        var content = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(requestContent));
+
+        // For GPT-5 models, auto-detection should still enable max_completion_tokens
+        Assert.True(content.TryGetProperty("max_completion_tokens", out var propertyValue));
+        Assert.Equal(123, propertyValue.GetInt32());
+        Assert.False(content.TryGetProperty("max_tokens", out _));
+    }
+
+    [Theory]
+    [InlineData("gpt-4")]
+    [InlineData("gpt-4o")]
+    public async Task GetChatMessageContentsRespectExplicitSetNewMaxCompletionTokensEnabledForNonGpt5ModelsAsync(string deploymentName)
+    {
+        // Arrange  
+        var service = new AzureOpenAIChatCompletionService(deploymentName, "https://endpoint", "api-key", "model-id", this._httpClient);
+        var settings = new AzureOpenAIPromptExecutionSettings
+        {
+            MaxTokens = 123,
+            SetNewMaxCompletionTokensEnabled = true // Explicitly set to true even for non-GPT-5 models
+        };
+
+        using var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AzureOpenAITestHelper.GetTestResponse("chat_completion_test_response.json"))
+        };
+        this._messageHandlerStub.ResponsesToReturn.Add(responseMessage);
+
+        // Act
+        var result = await service.GetChatMessageContentsAsync(new ChatHistory("System message"), settings);
+
+        // Assert
+        var requestContent = this._messageHandlerStub.RequestContents[0];
+        Assert.NotNull(requestContent);
+
+        var content = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(requestContent));
+
+        // Explicit setting should be respected even for non-GPT-5 models
+        Assert.True(content.TryGetProperty("max_completion_tokens", out var propertyValue));
+        Assert.Equal(123, propertyValue.GetInt32());
+        Assert.False(content.TryGetProperty("max_tokens", out _));
+    }
+
+    [Theory]
     [InlineData("stream", "true")]
     [InlineData("stream_options", "{\"include_usage\":true}")]
     [InlineData("model", "\"deployment\"")]
