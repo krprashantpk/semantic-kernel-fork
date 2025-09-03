@@ -65,7 +65,7 @@ internal partial class AzureClientCore
             options.AudioOptions = GetAudioOptions(executionSettings);
         }
 
-        if (azureSettings.SetNewMaxCompletionTokensEnabled)
+        if (azureSettings.SetNewMaxCompletionTokensEnabled || RequiresMaxCompletionTokens(this.DeploymentName))
         {
 #pragma warning disable AOAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             options.SetNewMaxCompletionTokensPropertyEnabled(true);
@@ -260,5 +260,33 @@ internal partial class AzureClientCore
         }
 
         throw new NotSupportedException($"The provided audio options '{executionSettings.Audio?.GetType()}' is not supported.");
+    }
+
+    /// <summary>
+    /// Determines if the specified model deployment requires the max_completion_tokens parameter instead of max_tokens.
+    /// </summary>
+    /// <param name="deploymentName">The deployment name or model identifier.</param>
+    /// <returns>True if the model requires max_completion_tokens, false otherwise.</returns>
+    private static bool RequiresMaxCompletionTokens(string deploymentName)
+    {
+        if (string.IsNullOrEmpty(deploymentName))
+        {
+            return false;
+        }
+
+        // GPT-5 models require max_completion_tokens
+        if (deploymentName.StartsWith("gpt-5", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // o1 and o3 reasoning models require max_completion_tokens
+        if (deploymentName.StartsWith("o1", StringComparison.OrdinalIgnoreCase) ||
+            deploymentName.StartsWith("o3", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
     }
 }

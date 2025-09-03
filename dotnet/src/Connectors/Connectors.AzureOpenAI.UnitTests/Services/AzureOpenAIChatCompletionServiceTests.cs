@@ -306,6 +306,47 @@ public sealed class AzureOpenAIChatCompletionServiceTests : IDisposable
         Assert.Equal(123, propertyValue.GetInt32());
     }
 
+    [Theory]
+    [InlineData("gpt-5-mini", "max_completion_tokens")]
+    [InlineData("gpt-5-nano", "max_completion_tokens")]
+    [InlineData("GPT-5-mini", "max_completion_tokens")]
+    [InlineData("o1-mini", "max_completion_tokens")]
+    [InlineData("o1-preview", "max_completion_tokens")]
+    [InlineData("o3-mini", "max_completion_tokens")]
+    [InlineData("O1-MINI", "max_completion_tokens")]
+    [InlineData("gpt-4", "max_tokens")]
+    [InlineData("gpt-4o", "max_tokens")]
+    [InlineData("gpt-35-turbo", "max_tokens")]
+    [InlineData("other-model", "max_tokens")]
+    public async Task GetChatMessageContentsAutomaticallyUsesMaxCompletionTokensForGpt5AndReasoningModelsAsync(string deploymentName, string expectedPropertyName)
+    {
+        // Arrange
+        var service = new AzureOpenAIChatCompletionService(deploymentName, "https://endpoint", "api-key", "model-id", this._httpClient);
+        var settings = new AzureOpenAIPromptExecutionSettings
+        {
+            MaxTokens = 123
+            // Note: SetNewMaxCompletionTokensEnabled is not explicitly set, should be auto-detected
+        };
+
+        using var responseMessage = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(AzureOpenAITestHelper.GetTestResponse("chat_completion_test_response.json"))
+        };
+        this._messageHandlerStub.ResponsesToReturn.Add(responseMessage);
+
+        // Act
+        var result = await service.GetChatMessageContentsAsync(new ChatHistory("System message"), settings);
+
+        // Assert
+        var requestContent = this._messageHandlerStub.RequestContents[0];
+        Assert.NotNull(requestContent);
+
+        var content = JsonSerializer.Deserialize<JsonElement>(Encoding.UTF8.GetString(requestContent));
+
+        Assert.True(content.TryGetProperty(expectedPropertyName, out var propertyValue));
+        Assert.Equal(123, propertyValue.GetInt32());
+    }
+
     [Fact]
     public async Task GetChatMessageContentsHandlesUserSecurityContextCorrectlyAsync()
     {
